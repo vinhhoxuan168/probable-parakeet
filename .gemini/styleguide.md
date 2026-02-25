@@ -68,58 +68,6 @@ Scan every Java file for memory retention issues (static refs, unclosed resource
 | TABLE-05 | `is32loyaltycard` |
 | TABLE-06 | `is32warehouseallocation`  |
 
-## 6. MULTI-TABLE JOIN REVIEW PROTOCOL
-
-When a query joins 4 or more tables, apply the following additional checks:
-
-- **Join Count Threshold**: Queries joining 6+ tables require an explicit justification in the review. Suggest breaking into smaller queries or using a materialized/cached view if the join count exceeds 8.
-- **Mandatory Join Analysis Table**: For EVERY join in the query, produce the following table. **This is not optional — a review without this table for 4+ table queries is incomplete.**
-
-| Step | Join | Type | Cardinality | Estimated Rows After | Filter Applied? |
-|------|------|------|-------------|---------------------|-----------------|
-| 1 | IS32Promotion AS p | driving table | — | ~10K (filtered by status, suspended, dates) | Yes (WHERE) |
-| 2 | JOIN IS32PromotionTag AS pt | INNER | 1:1 | ~10K | Yes (displayType) |
-| 3 | JOIN Coupon AS c | INNER | 1:1 | ~10K | No |
-| 4 | LEFT JOIN CouponRedemption AS cr | LEFT | 1:N (**explosion**) | ~10K × N redemptions | **No filter — risk** |
-| ... | ... | ... | ... | ... | ... |
-
-  For each row, state:
-  - **Type**: INNER or LEFT
-  - **Cardinality**: 1:1, 1:N, or N:M
-  - **Estimated Rows After**: How the row count changes after this join
-  - **Filter Applied?**: Whether any WHERE or ON condition reduces rows at this step
-
-- **Row Estimation Chain**: Based on the Join Analysis Table, provide a narrative explanation of how rows grow or shrink through the query. Example: "Starting with ~10K active promotions, after LEFT JOIN CouponRedemption (1:N with avg 50 redemptions per coupon), rows explode to ~500K. This is then further multiplied by IS32Bucket (1:N)..."
-
-- **Filter Pushdown**: Verify that WHERE conditions are applied to the driving table (first table in FROM) to reduce the initial scan early. Filters that only apply to the last-joined table force the database to scan and join everything first. **Specifically check**: are there WHERE conditions that could be moved into JOIN ON clauses to filter earlier?
-- **SELECT Column Analysis**: Flag `SELECT *` or selecting columns from all joined tables when only a subset is needed. Unnecessary columns increase I/O and memory usage.
-- **Missing Aggregation (HIGH)**: If the query returns denormalized rows that the Java code must aggregate (e.g., GROUP BY in comments but not in query), this is a HIGH severity issue. Recommend moving aggregation to the database with a concrete SQL example showing the GROUP BY / COUNT / SUM that should be added.
-- **Query Decomposition Strategy**: When recommending breaking a large query into smaller ones, provide a concrete decomposition plan. Example: "Query 1: Get active promotion IDs with their reward configs. Query 2: For each promotion, get coupon redemption count. Query 3: Get e-stamp tier thresholds." Do not just say "break it up" — show HOW.
-
-## 7. QUERY EXECUTION PERFORMANCE DEEP DIVE
-
-Apply this section to every query that involves 3+ tables or is expected to run frequently (e.g., called per-request, per-customer, or in a scheduled job).
-
-### 7.1 Connection & Transaction Impact
-- **Long-running query risk**: Estimate whether this query could hold a database connection for an extended time. Queries with unbounded result sets or 8+ table joins can hold connections for seconds or more, exhausting the connection pool under load.
-- **Transaction scope**: Check if the DAO method runs inside a transaction. A long-running read query inside a write transaction can cause lock contention.
-- **Recommendation**: For read-only queries, recommend `@Transactional(readOnly = true)` or equivalent to avoid unnecessary locking.
-
-### 7.2 Caching Opportunities
-- **Identify cacheable queries**: If the query parameters include slowly-changing data (e.g., `catalogVersion`, `status = ACTIVE`), recommend caching the result with a TTL.
-- **Hybris-specific**: For FlexibleSearch, recommend `FlexibleSearchQuery.setCacheable(true)` when the data changes infrequently and the result set is small.
-- **Anti-pattern**: Do NOT recommend caching for queries with user-specific parameters (e.g., `userPk`) unless combined with a per-user cache strategy.
-
-### 7.3 Concurrency & Scalability
-- **Concurrent execution**: Estimate what happens if this query is executed concurrently by 100+ users. Will the database experience lock contention, connection pool exhaustion, or temp table overflow?
-- **Scaling bottleneck**: If the query performs a full scan or large join, flag it as a horizontal scaling bottleneck — adding more app servers will increase database load linearly.
-
-### 7.4 Hybris FlexibleSearch Specific
-- **`setResultClassList` correctness**: Verify that the result class list matches the SELECT columns in order and type. Mismatches cause `ClassCastException` at runtime.
-- **`setNeedTotal(false)`**: For queries where the total count is not needed, recommend `fsQuery.setNeedTotal(false)` to avoid an extra COUNT query.
-- **Pagination with FlexibleSearch**: When recommending pagination, use `fsQuery.setStart(offset)` and `fsQuery.setCount(pageSize)`. Provide a concrete code example.
-- **Type-safe results**: Flag methods returning `List<List<Object>>` or `List<Object[]>` when a typed DTO or Model would be safer. Raw Object lists are error-prone and make caller code fragile.
-
 ## 8. REVIEW OUTPUT FORMAT
 
 To ensure reviews are actionable, every issue MUST follow this exact format. **Do NOT use free-form paragraphs.** Every issue gets its own block:
@@ -167,10 +115,4 @@ Before submitting the review, verify ALL sections have been evaluated:
 - [ ] Section 3: Java runtime exceptions scanned (NPE, unsafe cast, Optional.get, collection bounds)
 - [ ] Section 4: Memory issues scanned (unbounded collections, large result sets in heap, static references)
 - [ ] Section 5: Every watched table cross-checked against the query (TABLE-01 through TABLE-07)
-- [ ] Section 6: Multi-table join protocol applied (if 4+ tables) — includes COMPLETE Join Analysis Table with row estimation
-- [ ] Section 6: Query decomposition strategy provided (if 8+ tables)
-- [ ] Section 6: Missing aggregation checked — Java-side GROUP BY/SUM/COUNT flagged
-- [ ] Section 7: Connection/transaction impact assessed
-- [ ] Section 7: Caching opportunities evaluated
-- [ ] Section 7: FlexibleSearch-specific checks applied (if Hybris)
 - [ ] Section 8: Every issue follows the structured output format with Rule/Location/Issue/Evidence/Impact/Fix
