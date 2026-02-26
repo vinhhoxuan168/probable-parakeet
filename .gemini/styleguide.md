@@ -1,14 +1,14 @@
-# Database Performance & Query Optimization
+# Database Performance & Java Code Quality
 
 ## MANDATORY RULES — READ FIRST
 
 **These rules are NON-NEGOTIABLE. Skipping any of them is a review failure.**
 
 1. You MUST produce a COMPLETE Index Verification Table for EVERY column in JOIN ON and WHERE clauses — not just the ones you suspect are missing indexes. A partial table is unacceptable.
-2. You MUST produce a COMPLETE Join Analysis Table for EVERY join when 4+ tables are involved.
-3. You MUST explicitly check each item in the Completeness Checklist (Section 10) and include the filled checklist in your review output.
-4. You MUST use the structured output format (Section 9) for every issue. No free-form paragraphs.
-5. You MUST flag client-side aggregation that should be done in SQL as a separate issue with its own severity.
+2. You MUST explicitly check each item in the Completeness Checklist (Section 9) and include the filled checklist in your review output.
+3. You MUST use the structured output format (Section 7) for every issue. No free-form paragraphs.
+4. You MUST flag client-side aggregation that should be done in SQL as a separate issue with its own severity.
+5. **ONE RULE PER REVIEW**: Each review comment MUST contain exactly ONE rule/issue. If a single code location violates multiple rules, you MUST create separate review comments for each rule. Do NOT combine multiple issues into one review comment. Grouping multiple violations into a single comment is a review failure.
 
 ## 1. Detect Index Usage — Systematic Cross-Check
 
@@ -42,7 +42,7 @@ Flag the following patterns as "Potential Slow Performance". When flagging an is
 | SLOW-04 | Mismatched Data Types: string column compared with numeric value — implicit conversion ignores index |
 | SLOW-05 | **[CRITICAL]** Unbounded Result Set: no `LIMIT` / pagination (`setMaxResults`, `setStart`) / row-count cap. Queries joining 3+ tables without pagination can cause OOM — **automatic CRITICAL, no exceptions** |
 | SLOW-06 | Cartesian Product / JOIN Explosion: LEFT JOIN on 1:N without aggregation multiplies result set. **Quantify** the multiplication factor (e.g., "1000 CouponRedemptions × each row = 1000× explosion") |
-| SLOW-07 | Large Intermediate Result Sets: join order doesn't reduce rows early. Must produce a **Row Estimation Chain** (see Section 6) |
+| SLOW-07 | Large Intermediate Result Sets: join order doesn't reduce rows early, causing unnecessary data processing |
 | SLOW-08 | **[HIGH]** Client-side Aggregation: caller aggregates in Java (GROUP BY, SUM, COUNT, DISTINCT) instead of SQL. Loading millions of rows into JVM heap wastes memory, CPU, and network I/O |
 | SLOW-09 | OR-clause on different columns or mixed operators preventing single index scan. **Exception**: `(col IS NULL OR col <= ?date)` is a standard nullable-date guard — do NOT flag |
 
@@ -56,26 +56,32 @@ Scan every Java file for memory retention issues (static refs, unclosed resource
 
 ## 5. WATCHED TABLES
 
-**MANDATORY**: Cross-check EVERY query against this table. If a query touches any table listed below, you MUST apply extra scrutiny and produce a warning in the review output using the structured format (Section 8) with the Rule index. No exceptions.
+**MANDATORY**: Cross-check EVERY query against this table. If a query touches any table listed below, you MUST apply extra scrutiny and produce a warning in the review output using the structured format (Section 7) with the Rule index. No exceptions.
 
 **To add new rules**: append a row with a new `TABLE-nn` index.
 
 | Rule | Table |
 |------|-------|
-| TABLE-01 | `is32loyaltytransaction` |
-| TABLE-03 | `is32fulfillmententry` |
-| TABLE-04 | `is32returnrequest` |
-| TABLE-05 | `is32loyaltycard` |
-| TABLE-06 | `is32warehouseallocation`  |
+| TABLE-01 | `is32loyaltytransaction` (~50M) |
+| TABLE-02 | `is32loyaltytransaction` + `is32loyaltycard` |
+| TABLE-03 | `is32fulfillmententry` (~20M) |
+| TABLE-04 | `is32returnrequest` (~8M) |
+| TABLE-05 | `is32returnrequest` + `is32fulfillmententry` |
+| TABLE-06 | `is32loyaltycard` (~5M) |
+| TABLE-07 | `is32warehouseallocation` (~2M) |
 
-## 8. REVIEW OUTPUT FORMAT
+## 6. JAVA CODING PERFORMANCE
+
+Scan every Java file for any coding patterns that negatively impact performance (CPU, memory, I/O, concurrency, thread safety). Do NOT skip this section.
+
+## 7. REVIEW OUTPUT FORMAT
 
 To ensure reviews are actionable, every issue MUST follow this exact format. **Do NOT use free-form paragraphs.** Every issue gets its own block:
 
 ```
 ### [SEVERITY: Critical/High/Medium] — Short title
 
-**Rule**: SLOW-xx, TABLE-xx (reference the applicable rule indexes)
+**Rule**: ONE single rule index (e.g., SLOW-01 or TABLE-03)
 **Location**: file:line or query line reference
 **Issue**: Concrete description of what is wrong
 **Evidence**: Reference to *-items.xml index definition, code line, or query pattern
@@ -84,12 +90,12 @@ To ensure reviews are actionable, every issue MUST follow this exact format. **D
 ```
 
 **Rules**:
+- **ONE RULE PER REVIEW COMMENT**: Each review comment MUST reference exactly ONE rule/issue. If the same code location has multiple problems, create SEPARATE review comments — one for each issue. Never combine multiple issues into a single review comment.
 - Do NOT produce vague warnings like "this query may be slow" without specifying which join/filter is the problem, which index is missing, and what the fix is.
-- Do NOT combine multiple issues into one block. Each issue gets its own severity and block.
 - **Impact must be quantified** where possible: estimate table sizes, row multiplication factors, or memory consumption. "Millions of rows" is better than "many rows". "500MB heap consumed loading 2M rows of 4 columns" is better than "high memory usage".
 - **Fix must include code** for Critical and High issues. A textual description alone is insufficient.
 
-## 9. SEVERITY CLASSIFICATION GUIDE
+## 8. SEVERITY CLASSIFICATION GUIDE
 
 Use the following to determine severity. Do not downgrade severity for convenience.
 
@@ -102,7 +108,7 @@ Use the following to determine severity. Do not downgrade severity for convenien
 
 **Escalation rule**: If an issue combines two categories (e.g., unbounded result set + client-side aggregation), use the HIGHER severity.
 
-## 10. REVIEW COMPLETENESS CHECKLIST
+## 9. REVIEW COMPLETENESS CHECKLIST
 
 **MANDATORY**: You MUST include this filled checklist at the END of your review. Mark each item with [x] when completed. A review missing this checklist or with unchecked mandatory items will be considered incomplete.
 
@@ -115,4 +121,6 @@ Before submitting the review, verify ALL sections have been evaluated:
 - [ ] Section 3: Java runtime exceptions scanned (NPE, unsafe cast, Optional.get, collection bounds)
 - [ ] Section 4: Memory issues scanned (unbounded collections, large result sets in heap, static references)
 - [ ] Section 5: Every watched table cross-checked against the query (TABLE-01 through TABLE-07)
-- [ ] Section 8: Every issue follows the structured output format with Rule/Location/Issue/Evidence/Impact/Fix
+- [ ] Section 6: Java coding performance scanned
+- [ ] Section 7: Every issue follows the structured output format — ONE rule per review comment
+- [ ] Verified: No review comment contains multiple rule indexes
