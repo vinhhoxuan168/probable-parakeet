@@ -80,6 +80,7 @@ Scan every Java file for memory retention issues (static refs, unclosed resource
 | SQL-01 | SELECT item_t0.PK FROM is32promotion item_t0 JOIN is32bucket item_t1 ON item_t1.p_promotionuid = item_t0.p_uid WHERE ( item_t0.p_redeemdigitalcoupon IS NOT NULL AND item_t0.p_requiredcoupon = '' AND item_t1.p_participateinreward = '' AND (SELECT COUNT('') FROM is32bucket item_t2 WHERE ( item_t2.p_promotionuid = item_t0.p_uid ) AND (item_t2.TypePkString=? )) = '' AND EXISTS( SELECT '' FROM is32threshold item_t3 WHERE ( item_t3.p_promotionuid = item_t0.p_uid AND item_t3.p_thresholdtype = ?) AND (item_t3.TypePkString=? )) AND NOT EXISTS( SELECT '' FROM is32promoexcludeitem item_t4 WHERE ( item_t4.p_itemcode = ? and item_t4.p_bucketuid = item_t1.uniqueid ) AND (item_t4.TypePkString=? )) AND item_t0.p_status = '' AND item_t0.p_suspended = '' AND item_t0.p_startdate <= ? AND item_t0.p_enddate >= ? AND item_t0.p_basestore = ?) AND ((item_t0.TypePkString=? AND item_t1.TypePkString=? )) |
 | SQL-02 | SELECT avg( item_t0.p_rating ) FROM customerreviews item_t0 WHERE ( item_t0.p_product = ?) AND (item_t0.TypePkString=? AND ( item_t0.p_blocked = '' OR item_t0.p_blocked IS NULL)AND ( item_t0.p_approvalstatus !=''))|
 | SQL-03 | SELECT * FROM crmaccount WHERE PK IN (?,?,..., ?)|
+| SQL-04 | select * from {Is32Promotion as p join cart as c on {p.cart} = {c.pk}} |
 
 ### 5.2 QUERY ANATOMY DECOMPOSITION PROTOCOL
 
