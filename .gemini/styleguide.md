@@ -90,15 +90,15 @@ Scan every Java file for memory retention issues (static refs, unclosed resource
 
 **To add new rules**: append a row with a new `SQL-nn` index.
 
-| Rule | Structural Pattern (in FlexibleSearch syntax) | What to detect and flag |
-|------|-----------------------------------------------|------------------------|
-| SQL-01 | `SELECT ... FROM {TypeA AS a JOIN TypeB AS b ON {b.fk} = {a.pk}} WHERE ... AND ({{ SELECT COUNT({x.pk}) FROM {TypeC AS x} WHERE {x.fk} = {a.pk} }}) < {a.maxField} AND EXISTS ({{ ... }}) AND NOT EXISTS ({{ ... }}) AND {a.dateFrom} <= ?now AND {a.dateTo} >= ?now` | JOIN + correlated COUNT subquery + EXISTS/NOT EXISTS combination. Correlated subquery executes once per outer row — flag SQL-01 |
-| SQL-02 | `SELECT AVG({x.attr}) FROM {TypeName AS x} WHERE ...` — or any aggregate function (`AVG`, `SUM`, `MIN`, `MAX`) directly in the SELECT without `GROUP BY` | Aggregate across potentially large unbounded set — flag SQL-02 |
-| SQL-03 | `WHERE {x.pk} IN (?p1, ?p2, ..., ?pN)` with a dynamically-sized parameter list | Large IN-list: no index benefit beyond a threshold; recommend batch cap — flag SQL-03 |
-| SQL-04 | Any `SELECT ... FROM {TypeName}` or JOIN query where the calling Java method does **not** call `query.setMaxResults(n)` or `query.setStart(n)` before executing | Unbounded result set — **automatic [SEVERITY: Critical]** per SLOW-05. Flag SQL-04 in addition to SLOW-05 |
-| SQL-05 | `({{ SELECT COUNT({x.pk}) FROM {Table AS x} WHERE {x.fk} = {outer.pk} }})` used as a filter condition (e.g., `< {outer.maxField}`) in the WHERE clause of the outer query | Correlated COUNT per outer row — N×M query cost. Flag SQL-05 and SLOW-10 |
-| SQL-06 | `AND EXISTS ({{ SELECT {x.pk} FROM {Table AS x} WHERE {x.fk} = {outer.pk} AND ... }})` or `AND NOT EXISTS ({{ ... }})` inside a query that itself has no `setMaxResults` | Nested EXISTS/NOT EXISTS without result cap — verify inner query has indexes — flag SQL-06 |
-| SQL-07 | `ORDER BY {x.creationtime} DESC` (or any timestamp/date column) without `query.setMaxResults(n)` in the calling Java method | Full sort on unbounded set — **[SEVERITY: Critical]**. Flag SQL-07 |
+| Rule | Structural Pattern (in FlexibleSearch syntax) |
+|------|-----------------------------------------------|
+| SQL-01 | `SELECT ... FROM {TypeA AS a JOIN TypeB AS b ON {b.fk} = {a.pk}} WHERE ... AND ({{ SELECT COUNT({x.pk}) FROM {TypeC AS x} WHERE {x.fk} = {a.pk} }}) < {a.maxField} AND EXISTS ({{ ... }}) AND NOT EXISTS ({{ ... }}) AND {a.dateFrom} <= ?now AND {a.dateTo} >= ?now` |
+| SQL-02 | `SELECT AVG({x.attr}) FROM {TypeName AS x} WHERE ...` — or any aggregate function (`AVG`, `SUM`, `MIN`, `MAX`) directly in the SELECT without `GROUP BY` | 
+| SQL-03 | `WHERE {x.pk} IN (?p1, ?p2, ..., ?pN)` with a dynamically-sized parameter list |
+| SQL-04 | Any `SELECT ... FROM {TypeName}` or JOIN query where the calling Java method does **not** call `query.setMaxResults(n)` or `query.setStart(n)` before executing |
+| SQL-05 | `({{ SELECT COUNT({x.pk}) FROM {Table AS x} WHERE {x.fk} = {outer.pk} }})` used as a filter condition (e.g., `< {outer.maxField}`) in the WHERE clause of the outer query | 
+| SQL-06 | `AND EXISTS ({{ SELECT {x.pk} FROM {Table AS x} WHERE {x.fk} = {outer.pk} AND ... }})` or `AND NOT EXISTS ({{ ... }})` inside a query that itself has no `setMaxResults` |
+| SQL-07 | `ORDER BY {x.creationtime} DESC` (or any timestamp/date column) without `query.setMaxResults(n)` in the calling Java method |
 
 ## 6. JAVA CODING PERFORMANCE
 
