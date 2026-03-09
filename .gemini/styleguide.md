@@ -86,8 +86,6 @@ Scan every Java file for memory retention issues (static refs, unclosed resource
 
 **MANDATORY — applies to every FlexibleSearch or SQL query in the PR. Do NOT skip.**
 
-You are NOT allowed to match queries against pattern tables (Section 5.1) without first completing this decomposition. Pattern tables list known examples — your job is to reason about structure and risk, not just pattern-match.
-
 **Step A — Parse and label every clause.** For each query string found, identify and list:
 - `SELECT` target (PK only vs. full columns vs. aggregate function)
 - `FROM` and `JOIN` (list every table and join type: INNER/LEFT/cross)
@@ -101,21 +99,24 @@ You are NOT allowed to match queries against pattern tables (Section 5.1) withou
 |--------|--------------------------|
 | Every subquery inside `{{ }}` | "Is this correlated (references outer table)? If yes → flag SLOW-10 / SQL-05 / SQL-06" |
 | Every `JOIN` | "What is the cardinality: 1:1, 1:N, or N:M? If 1:N or N:M without aggregation → flag SLOW-06" |
+| Every `JOIN` | "Does this JOIN pattern (tables joined + join column) structurally match any JOIN in Section 5.1 patterns? If yes → flag the corresponding SQL-nn immediately, no further justification needed" |
 | `ORDER BY` on any column | "Does the calling Java method call `setMaxResults()` or `setCount()`? If no → flag SLOW-05 + SLOW-07 escalated to Critical" |
 | `WHERE` with 2+ columns | "Does a composite index cover this exact combination? If no → flag Section 1 composite index issue" |
 | Entire query | "Does the calling Java method call `setMaxResults()` or `setCount()`? If no → flag SLOW-05 as Critical regardless of query complexity" |
 | `flexibleSearchService` field | "Is it validated non-null before use (via @Required, constructor injection, or null-check)? If no → flag Section 3 NPE risk" |
 
-**Step C — After decomposition, cross-check the overall query shape against Section 5.1 patterns.** A query does NOT need to match a pattern exactly — if the structural decomposition from Step A reveals the same risk profile (correlated subquery + JOIN + date range filter + EXISTS), flag SQL-01 regardless of table names.
+**Step C — Cross-check JOIN patterns against Section 5.1.**
+After extracting all JOIN clauses in Step A, compare each JOIN against the JOIN patterns defined in the SQL-nn rules in Section 5.1. Focus exclusively on the JOIN structure: which tables are joined, on which columns, and with which join type. If any JOIN in the query is structurally similar to a JOIN in a Section 5.1 pattern, you MUST flag it with the corresponding SQL-nn rule and produce a warning — regardless of the surrounding WHERE conditions, business logic, or any other context. A matching JOIN pattern alone is sufficient grounds for a mandatory warning. Do NOT attempt to assess general risk or find other justifications; the JOIN pattern match is the sole criterion.
 
-**Step D — Determine severity using escalation.** If a single query triggers multiple issues (e.g., unbounded result set + ORDER BY + correlated subquery), the effective severity of each issue is NEVER downgraded. Each is its own separate comment. The comment for SLOW-05 MUST be Critical even if you also flag SQL-07 separately.
+**Step D — Determine severity using escalation.**
+If a single query triggers multiple issues (e.g., unbounded result set + ORDER BY + correlated subquery), the effective severity of each issue is NEVER downgraded. Each is its own separate comment. The comment for SLOW-05 MUST be Critical even if you also flag SQL-07 separately.
 
 **FAILURE MODES — these are automatic review failures:**
 - Skipping Step A or Step B for any query in the PR
 - Flagging ORDER BY without checking `setMaxResults` at the call site
 - Marking Section 3 [x] in the checklist without explicitly checking every `flexibleSearchService` field for null-safety
 - Writing a single comment that combines findings from two different rules (e.g., SLOW-05 + SQL-07 in one comment)
-
+- Skipping Step C JOIN pattern check for any query in the PR
 
 ## 6. JAVA CODING PERFORMANCE
 
